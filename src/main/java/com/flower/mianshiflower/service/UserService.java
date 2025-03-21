@@ -6,15 +6,18 @@ import com.flower.mianshiflower.model.dto.user.UserQueryRequest;
 import com.flower.mianshiflower.model.entity.User;
 import com.flower.mianshiflower.model.vo.LoginUserVO;
 import com.flower.mianshiflower.model.vo.UserVO;
+
+import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import javax.servlet.http.HttpServletRequest;
 import me.chanjar.weixin.common.bean.WxOAuth2UserInfo;
 
 /**
  * 用户服务
  *
- * @author <a href="https://github.com/liflower">程序员鱼皮</a>
- * @from <a href="https://flower.icu">编程导航知识星球</a>
+ * @author <a href="https://github.com/kaseketsu">程序员小花</a>
+ * @from <a href="https://f1ower.cn">小花blog</a>
  */
 public interface UserService extends IService<User> {
 
@@ -118,4 +121,17 @@ public interface UserService extends IService<User> {
      */
     QueryWrapper<User> getQueryWrapper(UserQueryRequest userQueryRequest);
 
+    /**
+     * 签到
+     * @param userId
+     * @return
+     */
+    boolean addUserSignIn(long userId);
+
+    /**
+     * 获取用户签到记录
+     * @param userId
+     * @return
+     */
+    List<Integer> getUserSignInRecord(long userId, Integer year);
 }

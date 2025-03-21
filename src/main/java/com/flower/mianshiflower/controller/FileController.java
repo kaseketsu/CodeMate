@@ -1,6 +1,7 @@
 package com.flower.mianshiflower.controller;
 
 import cn.hutool.core.io.FileUtil;
+import cn.hutool.core.io.file.FileNameUtil;
 import com.flower.mianshiflower.common.BaseResponse;
 import com.flower.mianshiflower.common.ErrorCode;
 import com.flower.mianshiflower.common.ResultUtils;
@@ -26,8 +27,8 @@ import org.springframework.web.multipart.MultipartFile;
 /**
  * 文件接口
  *
- * @author <a href="https://github.com/liflower">程序员鱼皮</a>
- * @from <a href="https://flower.icu">编程导航知识星球</a>
+ * @author <a href="https://github.com/kaseketsu">程序员小花</a>
+ * @from <a href="https://f1ower.cn">小花blog</a>
  */
 @RestController
 @RequestMapping("/file")
@@ -94,7 +95,7 @@ public class FileController {
         // 文件大小
         long fileSize = multipartFile.getSize();
         // 文件后缀
-        String fileSuffix = FileUtil.getSuffix(multipartFile.getOriginalFilename());
+        String fileSuffix = FileNameUtil.getSuffix(multipartFile.getOriginalFilename());
         final long ONE_M = 1024 * 1024L;
         if (FileUploadBizEnum.USER_AVATAR.equals(fileUploadBizEnum)) {
             if (fileSize > ONE_M) {

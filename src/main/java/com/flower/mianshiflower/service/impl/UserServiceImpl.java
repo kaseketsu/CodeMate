@@ -1,41 +1,57 @@
 package com.flower.mianshiflower.service.impl;
 
-import static com.flower.mianshiflower.constant.UserConstant.USER_LOGIN_STATE;
-
+import cn.dev33.satoken.stp.StpUtil;
 import cn.hutool.core.collection.CollUtil;
+import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.flower.mianshiflower.common.ErrorCode;
 import com.flower.mianshiflower.constant.CommonConstant;
+import com.flower.mianshiflower.constant.RedisConstant;
 import com.flower.mianshiflower.exception.BusinessException;
+import com.flower.mianshiflower.exception.ThrowUtils;
 import com.flower.mianshiflower.mapper.UserMapper;
 import com.flower.mianshiflower.model.dto.user.UserQueryRequest;
 import com.flower.mianshiflower.model.entity.User;
 import com.flower.mianshiflower.model.enums.UserRoleEnum;
 import com.flower.mianshiflower.model.vo.LoginUserVO;
 import com.flower.mianshiflower.model.vo.UserVO;
+import com.flower.mianshiflower.satoken.DeviceUtils;
 import com.flower.mianshiflower.service.UserService;
 import com.flower.mianshiflower.utils.SqlUtils;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.stream.Collectors;
-import javax.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import me.chanjar.weixin.common.bean.WxOAuth2UserInfo;
 import org.apache.commons.lang3.StringUtils;
+
+import java.time.LocalDate;
+
+import org.redisson.api.RBitSet;
+import org.redisson.api.RedissonClient;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.util.DigestUtils;
 
+import javax.annotation.Resource;
+import javax.servlet.http.HttpServletRequest;
+import java.time.Year;
+import java.util.*;
+import java.util.stream.Collectors;
+
+import static com.flower.mianshiflower.constant.UserConstant.USER_LOGIN_STATE;
+
 /**
  * 用户服务实现
  *
- * @author <a href="https://github.com/liflower">程序员鱼皮</a>
- * @from <a href="https://flower.icu">编程导航知识星球</a>
+ * @author <a href="https://github.com/kaseketsu">程序员小花</a>
+ * @from <a href="https://f1ower.cn">小花blog</a>
  */
 @Service
 @Slf4j
 public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements UserService {
+
+    @Resource
+    RedissonClient redissonClient;
+    ;
 
     /**
      * 盐值，混淆密码
@@ -105,7 +121,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户不存在或密码错误");
         }
         // 3. 记录用户的登录态
-        request.getSession().setAttribute(USER_LOGIN_STATE, user);
+//        request.getSession().setAttribute(USER_LOGIN_STATE, user);
+        // SaToken登录态记录，指定设备，同端登录互斥
+        StpUtil.login(user.getId(), DeviceUtils.getRequestDevice(request));
+        StpUtil.getSession().set(USER_LOGIN_STATE, user);
         return this.getLoginUserVO(user);
     }
 
@@ -150,14 +169,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     @Override
     public User getLoginUser(HttpServletRequest request) {
         // 先判断是否已登录
-        Object userObj = request.getSession().getAttribute(USER_LOGIN_STATE);
-        User currentUser = (User) userObj;
-        if (currentUser == null || currentUser.getId() == null) {
-            throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR);
-        }
+        String loginUserId = (String) StpUtil.getLoginIdDefaultNull();
+        ThrowUtils.throwIf(StrUtil.isBlank(loginUserId), ErrorCode.NOT_LOGIN_ERROR);
+        // loginUserId转为Long类型
+        Long loginUserIdLong = Long.parseLong(loginUserId);
         // 从数据库查询（追求性能的话可以注释，直接走缓存）
-        long userId = currentUser.getId();
-        currentUser = this.getById(userId);
+        User currentUser = this.getById(loginUserId);
         if (currentUser == null) {
             throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR);
         }
@@ -173,12 +190,16 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     @Override
     public User getLoginUserPermitNull(HttpServletRequest request) {
         // 先判断是否已登录
-        Object userObj = request.getSession().getAttribute(USER_LOGIN_STATE);
-        User currentUser = (User) userObj;
-        if (currentUser == null || currentUser.getId() == null) {
-            return null;
-        }
+        Object loginUserId = StpUtil.getLoginIdDefaultNull();
+        ThrowUtils.throwIf(loginUserId == null, ErrorCode.NOT_LOGIN_ERROR);
+
+//        Object userObj = request.getSession().getAttribute(USER_LOGIN_STATE);
+//        User currentUser = (User) userObj;
+//        if (currentUser == null || currentUser.getId() == null) {
+//            return null;
+//        }
         // 从数据库查询（追求性能的话可以注释，直接走缓存）
+        User currentUser = this.getById((Long) loginUserId);
         long userId = currentUser.getId();
         return this.getById(userId);
     }
@@ -209,11 +230,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
      */
     @Override
     public boolean userLogout(HttpServletRequest request) {
-        if (request.getSession().getAttribute(USER_LOGIN_STATE) == null) {
-            throw new BusinessException(ErrorCode.OPERATION_ERROR, "未登录");
-        }
-        // 移除登录态
-        request.getSession().removeAttribute(USER_LOGIN_STATE);
+        StpUtil.checkLogin();
+        //移除登录态
+        StpUtil.logout();
         return true;
     }
 
@@ -268,5 +287,49 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         queryWrapper.orderBy(SqlUtils.validSortField(sortField), sortOrder.equals(CommonConstant.SORT_ORDER_ASC),
                 sortField);
         return queryWrapper;
+    }
+
+    /**
+     * 签到
+     *
+     * @param userId
+     * @return
+     */
+    @Override
+    public boolean addUserSignIn(long userId) {
+        LocalDate now = LocalDate.now();
+        String userSignInRedisKey = RedisConstant.getUserSignInRedisKey(now.getYear(), userId);
+        RBitSet bitSet = redissonClient.getBitSet(userSignInRedisKey);
+        int dayOfYear = now.getDayOfYear();
+        if (!bitSet.get(dayOfYear)) {
+            bitSet.set(dayOfYear);
+        }
+        return true;
+    }
+
+    /**
+     * 获取用户签到记录
+     *
+     * @param userId
+     * @param year
+     * @return
+     */
+    @Override
+    public List<Integer> getUserSignInRecord(long userId, Integer year) {
+        if (year == null) {
+            year = LocalDate.now().getYear();
+        }
+        String userSignInRedisKey = RedisConstant.getUserSignInRedisKey(year, userId);
+        //加载bitset到内存中，避免后续发送多次请求
+        BitSet bitSet = redissonClient.getBitSet(userSignInRedisKey).asBitSet();
+        //构造返回数据
+        ArrayList<Integer> result = new ArrayList<>();
+        int totalDays = Year.of(year).length();
+        int idx = bitSet.nextSetBit(0);
+        while (idx != -1 && idx < totalDays) {
+            result.add(idx);
+            idx = bitSet.nextSetBit(idx + 1);
+        }
+        return result;
     }
 }

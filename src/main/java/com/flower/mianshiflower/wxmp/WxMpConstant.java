@@ -3,8 +3,8 @@ package com.flower.mianshiflower.wxmp;
 /**
  * 微信公众号相关常量
  *
- * @author <a href="https://github.com/liflower">程序员鱼皮</a>
- * @from <a href="https://flower.icu">编程导航知识星球</a>
+ * @author <a href="https://github.com/kaseketsu">程序员小花</a>
+ * @from <a href="https://f1ower.cn">小花blog</a>
  **/
 public class WxMpConstant {
 
